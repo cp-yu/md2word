@@ -134,6 +134,11 @@
 
 这样仓库既能直接分享，也能直接复制进项目里使用。
 
+## 致谢
+
+- https://linux.do/t/topic/1217729感谢这篇文章提供的思路
+- 没有Linux Do，确实没有这个skills AWA
+
 ## License
 
 MIT，见 [LICENSE](./LICENSE)。

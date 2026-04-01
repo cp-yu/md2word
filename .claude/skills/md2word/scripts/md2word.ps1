@@ -21,6 +21,8 @@ param(
 
     [string]$MacroName = "",
 
+    [string]$StylePreset = "",
+
     [switch]$Visible,
 
     [int]$TimeoutSeconds = 180
@@ -301,6 +303,13 @@ if ($TemplateOut -and $TemplateMht) {
     throw "-TemplateOut is only meaningful with -TemplateDocx or -TemplateSpec."
 }
 
+if ($StylePreset) {
+    $allowedStylePresets = @("default", "academic-paper")
+    if ($allowedStylePresets -notcontains $StylePreset) {
+        throw "Unsupported -StylePreset: $StylePreset. Allowed values: default, academic-paper."
+    }
+}
+
 $pythonCommand = Get-PythonCommand
 $skillRoot = Split-Path -Parent $PSScriptRoot
 
@@ -361,14 +370,23 @@ if ($TemplateMht) {
     }
     Ensure-ParentDirectory -PathValue $targetTemplateOut
 
-    Invoke-CommandArray `
-        -Command ($pythonCommand + @(
+    if ($StylePreset) {
+        $templateArgs = @(
             (Join-Path $PSScriptRoot "generate_template_mht.py"),
             "--spec", $templateSpecAbs,
-            "--output", $targetTemplateOut
-        )) `
-        -Label "Generate template MHT"
-
+            "--output", $targetTemplateOut,
+            "--style-preset", $StylePreset
+        )
+        Invoke-CommandArray -Command ($pythonCommand + $templateArgs) -Label "Generate template MHT"
+    } else {
+        Invoke-CommandArray `
+            -Command ($pythonCommand + @(
+                (Join-Path $PSScriptRoot "generate_template_mht.py"),
+                "--spec", $templateSpecAbs,
+                "--output", $targetTemplateOut
+            )) `
+            -Label "Generate template MHT"
+    }
     $resolvedTemplateAbs = $targetTemplateOut
 } else {
     $resolvedTemplateAbs = Join-Path $skillRoot "assets/专利交底书模板.mht"
@@ -386,6 +404,9 @@ $renderArgs = @(
 )
 if ($templateReportAbs) {
     $renderArgs += @("--report", $templateReportAbs)
+}
+if ($StylePreset) {
+    $renderArgs += @("--style-preset", $StylePreset)
 }
 
 Invoke-CommandArray -Command ($pythonCommand + $renderArgs) -Label "Render MHT"

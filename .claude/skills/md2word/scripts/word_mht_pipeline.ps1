@@ -60,6 +60,67 @@ function Normalize-LatexBlockText {
     $normalized = $Text -replace "`r", " " -replace "`n", " "
     $normalized = [regex]::Replace($normalized, "\s+", " ").Trim()
     $normalized = $normalized -replace "\\varnothing", "\emptyset"
+    # Word 的 LaTeX/BuildUp 不吃 \begin{matrix}...\end{matrix}，要先压成 \matrix{...}
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{matrix\}\s*(.*?)\s*\\end\{matrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "\matrix{$inner}"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{pmatrix\}\s*(.*?)\s*\\end\{pmatrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "(\matrix{$inner})"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{bmatrix\}\s*(.*?)\s*\\end\{bmatrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "[\matrix{$inner}]"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{Bmatrix\}\s*(.*?)\s*\\end\{Bmatrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "\{\matrix{$inner}\}"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{vmatrix\}\s*(.*?)\s*\\end\{vmatrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "|\matrix{$inner}|"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
+    $normalized = [regex]::Replace(
+        $normalized,
+        "\\begin\{Vmatrix\}\s*(.*?)\s*\\end\{Vmatrix\}",
+        {
+            param($match)
+            $inner = [regex]::Replace($match.Groups[1].Value, "\s+", " ").Trim()
+            return "\|\matrix{$inner}\|"
+        },
+        [System.Text.RegularExpressions.RegexOptions]::Singleline
+    )
     $normalized = [regex]::Replace(
         $normalized,
         "\\begin\{cases\}\s*(.*?)\s*\\end\{cases\}",

@@ -11,6 +11,46 @@ from pathlib import Path
 
 
 SPEC_LINE_RE = re.compile(r"^(?:[-*]\s*)?([A-Za-z0-9_\-\u4e00-\u9fff ]{1,40})[:：]\s*(.+?)\s*$")
+DEFAULT_STYLE_PRESET = "default"
+ACADEMIC_PAPER_STYLE_PRESET = "academic-paper"
+STYLE_PRESETS = {
+    DEFAULT_STYLE_PRESET: {
+        "title_font": "SimSun",
+        "title_size_pt": 22.0,
+        "title_margin_top_pt": 48.0,
+        "title_line_height_pt": 30.0,
+        "subtitle_font": "SimSun",
+        "subtitle_size_pt": 12.0,
+        "subtitle_line_height_pt": 22.0,
+        "metadata_heading_font": "SimSun",
+        "metadata_heading_size_pt": 12.0,
+        "metadata_heading_line_height_pt": 22.0,
+        "body_heading_font": "SimSun",
+        "body_heading_size_pt": 14.0,
+        "body_heading_line_height_pt": 22.0,
+        "note_font": "SimSun",
+        "note_size_pt": 11.0,
+        "note_line_height_pt": 22.0,
+    },
+    ACADEMIC_PAPER_STYLE_PRESET: {
+        "title_font": "SimHei",
+        "title_size_pt": 18.0,
+        "title_margin_top_pt": 36.0,
+        "title_line_height_pt": 27.0,
+        "subtitle_font": "SimSun",
+        "subtitle_size_pt": 12.0,
+        "subtitle_line_height_pt": 18.0,
+        "metadata_heading_font": "SimHei",
+        "metadata_heading_size_pt": 15.0,
+        "metadata_heading_line_height_pt": 22.5,
+        "body_heading_font": "SimHei",
+        "body_heading_size_pt": 15.0,
+        "body_heading_line_height_pt": 22.5,
+        "note_font": "SimSun",
+        "note_size_pt": 12.0,
+        "note_line_height_pt": 18.0,
+    },
+}
 
 
 def ascii_html(text: str) -> str:
@@ -39,6 +79,7 @@ def parse_spec_text(text: str) -> dict[str, str]:
         "body-heading": "正文",
         "cover-note": "",
         "description": "",
+        "style-preset": DEFAULT_STYLE_PRESET,
     }
     aliases = {
         "title": {"title", "标题", "文档标题", "document-title", "documenttitle"},
@@ -46,6 +87,7 @@ def parse_spec_text(text: str) -> dict[str, str]:
         "metadata-heading": {"metadata-heading", "metadata", "元数据标题", "信息标题"},
         "body-heading": {"body-heading", "body", "正文标题", "内容标题"},
         "cover-note": {"cover-note", "cover", "封面说明", "模板说明", "note", "备注"},
+        "style-preset": {"style-preset", "style", "preset", "样式预设", "样式", "格式预设"},
     }
 
     description_lines: list[str] = []
@@ -79,7 +121,11 @@ def parse_spec_text(text: str) -> dict[str, str]:
     return config
 
 
-def render_note_paragraphs(text: str) -> str:
+def resolve_style_preset(name: str) -> dict[str, float | str]:
+    return STYLE_PRESETS.get(name, STYLE_PRESETS[DEFAULT_STYLE_PRESET])
+
+
+def render_note_paragraphs(text: str, style: dict[str, float | str]) -> str:
     if not text.strip():
         return ""
 
@@ -90,8 +136,10 @@ def render_note_paragraphs(text: str) -> str:
             continue
         html_text = "<br>".join(ascii_html(line) for line in lines)
         parts.append(
-            "<p class=MsoNormal style='text-align:left;line-height:22.0pt'>"
-            "<span style='font-size:11.0pt;font-family:SimSun'>"
+            "<p class=MsoNormal style='text-align:left;line-height:"
+            f"{float(style['note_line_height_pt']):.1f}pt;mso-line-height-rule:exactly'>"
+            "<span style='font-size:"
+            f"{float(style['note_size_pt']):.1f}pt;font-family:{style['note_font']}'>"
             f"{html_text}"
             "</span></p>"
         )
@@ -99,6 +147,7 @@ def render_note_paragraphs(text: str) -> str:
 
 
 def build_html(config: dict[str, str]) -> str:
+    style = resolve_style_preset(config.get("style-preset", DEFAULT_STYLE_PRESET))
     title = config["title"] or "{{TITLE}}"
     subtitle = config["subtitle"].strip()
     metadata_heading = config["metadata-heading"].strip()
@@ -106,16 +155,21 @@ def build_html(config: dict[str, str]) -> str:
     cover_note = config["cover-note"].strip()
 
     title_block = (
-        "<p class=MsoTitle align=center style='text-align:center;margin-top:48.0pt'>"
-        "<b><span style='font-size:22.0pt;font-family:SimSun'>"
+        "<p class=MsoTitle align=center style='text-align:center;margin-top:"
+        f"{float(style['title_margin_top_pt']):.1f}pt;line-height:{float(style['title_line_height_pt']):.1f}pt;"
+        "mso-line-height-rule:exactly'>"
+        "<b><span style='font-size:"
+        f"{float(style['title_size_pt']):.1f}pt;font-family:{style['title_font']}'>"
         f"{ascii_html(title)}"
         "</span></b></p>"
     )
     subtitle_block = ""
     if subtitle:
         subtitle_block = (
-            "<p class=MsoNormal align=center style='text-align:center;line-height:22.0pt'>"
-            "<span style='font-size:12.0pt;font-family:SimSun'>"
+            "<p class=MsoNormal align=center style='text-align:center;line-height:"
+            f"{float(style['subtitle_line_height_pt']):.1f}pt;mso-line-height-rule:exactly'>"
+            "<span style='font-size:"
+            f"{float(style['subtitle_size_pt']):.1f}pt;font-family:{style['subtitle_font']}'>"
             f"{ascii_html(subtitle)}"
             "</span></p>"
         )
@@ -124,7 +178,9 @@ def build_html(config: dict[str, str]) -> str:
     if metadata_heading:
         metadata_block = (
             "<p class=MsoNormal style='margin-top:24.0pt'>"
-            "<b><span style='font-size:12.0pt;font-family:SimSun'>"
+            "<b><span style='font-size:"
+            f"{float(style['metadata_heading_size_pt']):.1f}pt;font-family:{style['metadata_heading_font']};"
+            f"line-height:{float(style['metadata_heading_line_height_pt']):.1f}pt'>"
             f"{ascii_html(metadata_heading)}"
             "</span></b></p>\n"
             f"{'{{METADATA_TABLE}}'}"
@@ -134,7 +190,9 @@ def build_html(config: dict[str, str]) -> str:
     if body_heading:
         body_heading_block = (
             "<p class=MsoNormal style='margin-bottom:12.0pt'>"
-            "<b><span style='font-size:14.0pt;font-family:SimSun'>"
+            "<b><span style='font-size:"
+            f"{float(style['body_heading_size_pt']):.1f}pt;font-family:{style['body_heading_font']};"
+            f"line-height:{float(style['body_heading_line_height_pt']):.1f}pt'>"
             f"{ascii_html(body_heading)}"
             "</span></b></p>"
         )
@@ -163,7 +221,7 @@ table.MsoTableGrid {{border-collapse:collapse;mso-table-layout-alt:fixed;}}
 <div class=WordSection1>
 {title_block}
 {subtitle_block}
-{render_note_paragraphs(cover_note)}
+{render_note_paragraphs(cover_note, style)}
 {metadata_block}
 <p class=MsoNormal style='page-break-after:always'><span style='font-size:1.0pt'>&nbsp;</span></p>
 </div>
@@ -200,10 +258,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a reusable MHT template from a simple spec or plain text description")
     parser.add_argument("--spec", "-s", required=True, help="Template spec or description markdown path")
     parser.add_argument("--output", "-o", required=True, help="Output MHT path")
+    parser.add_argument(
+        "--style-preset",
+        default="",
+        choices=["", *sorted(STYLE_PRESETS)],
+        help="Optional style preset override for the generated template",
+    )
     args = parser.parse_args()
 
     spec_text = Path(args.spec).read_text(encoding="utf-8")
     config = parse_spec_text(spec_text)
+    if args.style_preset:
+        config["style-preset"] = args.style_preset
     html_text = build_html(config)
 
     output_path = Path(args.output)

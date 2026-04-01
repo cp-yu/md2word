@@ -17,7 +17,44 @@ from io import BytesIO
 from pathlib import Path
 
 
-FIELD_LINE_RE = re.compile(r"^\*\*(.+?)：\*\*\s*(.*)$")
+DEFAULT_STYLE_PRESET = "default"
+ACADEMIC_PAPER_STYLE_PRESET = "academic-paper"
+STYLE_PRESETS = {
+    DEFAULT_STYLE_PRESET: {
+        "body_font": "SimSun",
+        "body_size_pt": 12.0,
+        "body_line_height_pt": 23.0,
+        "heading_font": "SimSun",
+        "heading_sizes": {
+            "h1_h3": 14.0,
+            "h4": 12.0,
+            "h5_plus": 11.0,
+        },
+        "heading_line_height_pt": 23.0,
+        "code_font": "Consolas",
+        "code_size_pt": 10.0,
+        "code_line_height_pt": 18.0,
+    },
+    ACADEMIC_PAPER_STYLE_PRESET: {
+        "body_font": "SimSun",
+        "body_size_pt": 12.0,
+        "body_line_height_pt": 18.0,
+        "heading_font": "SimHei",
+        "heading_sizes": {
+            "h1_h3": 15.0,
+            "h4": 13.0,
+            "h5_plus": 12.0,
+        },
+        "heading_line_height_pt": 22.5,
+        "code_font": "Consolas",
+        "code_size_pt": 10.0,
+        "code_line_height_pt": 18.0,
+    },
+}
+
+
+BOLD_FIELD_LINE_RE = re.compile(r"^\*\*(.+?)：\*\*\s*(.*)$")
+PLAIN_FIELD_LINE_RE = re.compile(r"^([A-Za-z0-9_\-\u4e00-\u9fff ]{1,40})[:：]\s*(.*)$")
 ORDERED_ITEM_RE = re.compile(r"^(\d+)\.\s+(.*)$")
 UNORDERED_ITEM_RE = re.compile(r"^([-*+])\s+(.*)$")
 TABLE_RE = re.compile(r"(?is)<table\b.*?</table>")
@@ -160,11 +197,24 @@ def parse_list_block(lines: list[str], start_index: int) -> tuple[dict[str, obje
     return block, i
 
 
+def parse_header_field_line(line: str) -> tuple[str, str] | None:
+    match = BOLD_FIELD_LINE_RE.match(line)
+    if match:
+        return normalize_label(match.group(1)), match.group(2).strip()
+
+    match = PLAIN_FIELD_LINE_RE.match(line)
+    if match:
+        return normalize_label(match.group(1)), match.group(2).strip()
+
+    return None
+
+
 def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, object]]]:
     lines = md_text.splitlines()
     header_items: list[tuple[str, str]] = []
     blocks: list[dict[str, object]] = []
     in_header = True
+    saw_header_items = False
     paragraph: list[str] = []
     i = 0
 
@@ -182,18 +232,29 @@ def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, 
         stripped = line.strip()
 
         if in_header:
-            if stripped == "---":
+            header_field = parse_header_field_line(stripped)
+            if header_field is not None:
+                header_items.append(header_field)
+                saw_header_items = True
+                i += 1
+                continue
+            if saw_header_items and stripped == "---":
                 in_header = False
                 i += 1
                 continue
-            if stripped.startswith("# "):
+            if saw_header_items and stripped == "":
                 i += 1
                 continue
-            match = FIELD_LINE_RE.match(stripped)
-            if match:
-                header_items.append((normalize_label(match.group(1)), match.group(2).strip()))
-            i += 1
-            continue
+            if saw_header_items and stripped.startswith("# "):
+                # Metadata is often followed by a duplicated H1 title.
+                # Keep it as document title instead of repeating it in body.
+                in_header = False
+                i += 1
+                continue
+            if saw_header_items:
+                in_header = False
+                continue
+            in_header = False
 
         if not stripped:
             flush_paragraph()
@@ -298,7 +359,7 @@ def collect_values_by_label(header_items: list[tuple[str, str]]) -> dict[str, li
 
 def pick_title(header_items: list[tuple[str, str]]) -> str:
     values_by_label = collect_values_by_label(header_items)
-    for key in ("项目名称", "发明名称", "标题", "主题", "题目"):
+    for key in ("标题", "题目", "主题", "发明名称", "项目名称"):
         values = values_by_label.get(key, [])
         if values and values[0]:
             return values[0]
@@ -441,23 +502,44 @@ def fill_cover_tables(
     return new_html
 
 
-def paragraph_style(indent_pt: float, *, single_spacing: bool = False) -> str:
+def resolve_style_preset(name: str) -> dict[str, object]:
+    return STYLE_PRESETS.get(name, STYLE_PRESETS[DEFAULT_STYLE_PRESET])
+
+
+def paragraph_style_for(
+    indent_pt: float,
+    line_height_pt: float,
+    *,
+    single_spacing: bool = False,
+) -> str:
     if single_spacing:
         return (
             f"text-indent:{indent_pt:.1f}pt;mso-char-indent-count:2.0;"
             "line-height:normal;mso-line-height-rule:auto"
         )
     return (
-        f"text-indent:{indent_pt:.1f}pt;mso-char-indent-count:2.0;line-height:23.0pt;"
+        f"text-indent:{indent_pt:.1f}pt;mso-char-indent-count:2.0;"
+        f"line-height:{line_height_pt:.1f}pt;"
         "mso-line-height-rule:exactly"
     )
 
 
-def body_heading(text: str, size_pt: float = 12.0) -> str:
+def heading_size_for(level: int, style: dict[str, object]) -> float:
+    heading_sizes = dict(style["heading_sizes"])
+    if level <= 3:
+        return float(heading_sizes["h1_h3"])
+    if level == 4:
+        return float(heading_sizes["h4"])
+    return float(heading_sizes["h5_plus"])
+
+
+def body_heading(text: str, size_pt: float, style: dict[str, object]) -> str:
     return (
-        "<p class=MsoNormal style='mso-line-height-alt:6.0pt'>"
+        "<p class=MsoNormal style='"
+        f"line-height:{float(style['heading_line_height_pt']):.1f}pt;"
+        "mso-line-height-rule:exactly'>"
         "<b><span style='font-size:"
-        f"{size_pt:.1f}pt;mso-bidi-font-size:10.0pt;font-family:SimSun'>"
+        f"{size_pt:.1f}pt;mso-bidi-font-size:10.0pt;font-family:{style['heading_font']}'>"
         f"{ascii_html(text)}"
         "</span></b></p>"
     )
@@ -469,14 +551,18 @@ def body_paragraph(
     monospace: bool = False,
     *,
     single_spacing: bool = False,
+    style: dict[str, object],
 ) -> str:
-    font = "Consolas" if monospace else "SimSun"
-    size = "10.0pt" if monospace else "12.0pt"
+    font = str(style["code_font"] if monospace else style["body_font"])
+    size = float(style["code_size_pt"] if monospace else style["body_size_pt"])
+    line_height_pt = float(
+        style["code_line_height_pt"] if monospace else style["body_line_height_pt"]
+    )
     return (
         "<p class=MsoNormal style='"
-        f"{paragraph_style(indent_pt, single_spacing=single_spacing)}'>"
+        f"{paragraph_style_for(indent_pt, line_height_pt, single_spacing=single_spacing)}'>"
         "<span"
-        f" style='font-size:{size};font-family:{font}'>"
+        f" style='font-size:{size:.1f}pt;font-family:{font}'>"
         f"{ascii_html(text) if text else '&nbsp;'}"
         "</span></p>"
     )
@@ -488,15 +574,19 @@ def body_multiline_paragraph(
     monospace: bool = False,
     *,
     single_spacing: bool = False,
+    style: dict[str, object],
 ) -> str:
-    font = "Consolas" if monospace else "SimSun"
-    size = "10.0pt" if monospace else "12.0pt"
+    font = str(style["code_font"] if monospace else style["body_font"])
+    size = float(style["code_size_pt"] if monospace else style["body_size_pt"])
+    line_height_pt = float(
+        style["code_line_height_pt"] if monospace else style["body_line_height_pt"]
+    )
     content = "<br>".join(ascii_html(line) if line else "&nbsp;" for line in lines)
     return (
         "<p class=MsoNormal style='"
-        f"{paragraph_style(indent_pt, single_spacing=single_spacing)}'>"
+        f"{paragraph_style_for(indent_pt, line_height_pt, single_spacing=single_spacing)}'>"
         "<span"
-        f" style='font-size:{size};font-family:{font}'>"
+        f" style='font-size:{size:.1f}pt;font-family:{font}'>"
         f"{content}"
         "</span></p>"
     )
@@ -511,7 +601,12 @@ def body_image_paragraph(src: str, alt: str) -> str:
     )
 
 
-def render_list_html(block: dict[str, object], level: int = 0, lfo: int = 1) -> str:
+def render_list_html(
+    block: dict[str, object],
+    style: dict[str, object],
+    level: int = 0,
+    lfo: int = 1,
+) -> str:
     ordered = bool(block["ordered"])
     tag = "ol" if ordered else "ul"
     list_style = "decimal" if ordered else ("disc" if level == 0 else "circle" if level == 1 else "square")
@@ -525,12 +620,16 @@ def render_list_html(block: dict[str, object], level: int = 0, lfo: int = 1) -> 
     for item in list(block["items"]):
         text = ascii_html(str(item.get("text", "")))
         child_html = "".join(
-            render_list_html(child, level + 1, lfo=lfo) for child in list(item.get("children", []))
+            render_list_html(child, style, level + 1, lfo=lfo)
+            for child in list(item.get("children", []))
         )
         rendered_items.append(
             "<li style='margin-bottom:6.0pt;"
+            f"line-height:{float(style['body_line_height_pt']):.1f}pt;"
+            "mso-line-height-rule:exactly;"
             f"mso-list:l0 level{min(level + 1, 9)} lfo{lfo}'>"
-            "<span style='font-size:12.0pt;font-family:SimSun'>"
+            "<span style='font-size:"
+            f"{float(style['body_size_pt']):.1f}pt;font-family:{style['body_font']}'>"
             f"{text or '&nbsp;'}"
             "</span>"
             f"{child_html}"
@@ -541,13 +640,15 @@ def render_list_html(block: dict[str, object], level: int = 0, lfo: int = 1) -> 
     return (
         f"<{tag}{start_attr} style='margin-top:0;margin-bottom:0;"
         f"margin-left:{margin_left:.1f}pt;padding-left:18.0pt;"
-        f"font-family:SimSun;font-size:12.0pt;list-style-type:{list_style}'>"
+        f"font-family:{style['body_font']};font-size:{float(style['body_size_pt']):.1f}pt;"
+        f"line-height:{float(style['body_line_height_pt']):.1f}pt;"
+        f"mso-line-height-rule:exactly;list-style-type:{list_style}'>"
         + "".join(rendered_items)
         + f"</{tag}>"
     )
 
 
-def render_body_inner(blocks: list[dict[str, object]]) -> str:
+def render_body_inner(blocks: list[dict[str, object]], style: dict[str, object]) -> str:
     parts: list[str] = []
     list_serial = 0
     for block in blocks:
@@ -555,21 +656,16 @@ def render_body_inner(blocks: list[dict[str, object]]) -> str:
         if kind == "heading":
             level = int(block["level"])
             text = str(block["text"])
-            if level <= 3:
-                parts.append(body_heading(text, 14.0))
-            elif level == 4:
-                parts.append(body_heading(text, 12.0))
-            else:
-                parts.append(body_heading(text, 11.0))
+            parts.append(body_heading(text, heading_size_for(level, style), style))
             continue
 
         if kind == "paragraph":
-            parts.append(body_paragraph(str(block["text"])))
+            parts.append(body_paragraph(str(block["text"]), style=style))
             continue
 
         if kind == "list":
             list_serial += 1
-            parts.append(render_list_html(block, lfo=list_serial))
+            parts.append(render_list_html(block, style, lfo=list_serial))
             continue
 
         if kind == "formula":
@@ -580,6 +676,7 @@ def render_body_inner(blocks: list[dict[str, object]]) -> str:
                     indent_pt=36.0,
                     monospace=True,
                     single_spacing=True,
+                    style=style,
                 )
             )
             continue
@@ -594,10 +691,14 @@ def render_body_inner(blocks: list[dict[str, object]]) -> str:
         if kind == "code":
             lang = str(block["lang"]).strip()
             if lang:
-                parts.append(body_paragraph(f"[{lang}]", indent_pt=36.0, monospace=True))
+                parts.append(
+                    body_paragraph(f"[{lang}]", indent_pt=36.0, monospace=True, style=style)
+                )
             code_lines = [str(x) for x in block["lines"]]
             for line in code_lines or [""]:
-                parts.append(body_paragraph(line, indent_pt=36.0, monospace=True))
+                parts.append(
+                    body_paragraph(line, indent_pt=36.0, monospace=True, style=style)
+                )
             continue
 
     return "\n".join(parts)
@@ -666,8 +767,9 @@ def replace_body(
     source_html: str,
     blocks: list[dict[str, object]],
     report: dict[str, object],
+    style: dict[str, object],
 ) -> str:
-    body_inner = render_body_inner(blocks)
+    body_inner = render_body_inner(blocks, style)
     for marker in CONTENT_MARKERS:
         if marker in source_html:
             report["body_strategy"] = f"marker:{marker}"
@@ -826,9 +928,15 @@ def render_mermaid_png(command_prefix: list[str], mermaid_code: str, output_path
     puppeteer_config_path.write_text(
         json.dumps(
             {
+                "headless": True,
                 "args": [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--no-zygote",
+                    "--disable-software-rasterizer",
                     "--no-proxy-server",
                 ]
             }
@@ -933,10 +1041,17 @@ def main() -> int:
     parser.add_argument("--template", "-t", required=True, help="Template MHT path")
     parser.add_argument("--output", "-o", required=True, help="Output MHT path")
     parser.add_argument("--report", help="Optional template inference report output path")
+    parser.add_argument(
+        "--style-preset",
+        default=DEFAULT_STYLE_PRESET,
+        choices=sorted(STYLE_PRESETS),
+        help="Rendering style preset for body content",
+    )
     args = parser.parse_args()
 
     md_text = Path(args.input).read_text(encoding="utf-8")
     header_items, blocks = parse_markdown(md_text)
+    style = resolve_style_preset(args.style_preset)
 
     msg = BytesParser(policy=policy.default).parsebytes(Path(args.template).read_bytes())
     html_part = next(
@@ -956,7 +1071,7 @@ def main() -> int:
     html_source = update_title(html_source, header_items)
     html_source = replace_named_placeholders(html_source, header_items, report)
     html_source = fill_cover_tables(html_source, header_items, report)
-    html_source = replace_body(html_source, blocks, report)
+    html_source = replace_body(html_source, blocks, report, style)
 
     content_location = html_part.get("Content-Location")
     html_part.set_content(
