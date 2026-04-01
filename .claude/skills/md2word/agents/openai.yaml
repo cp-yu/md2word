@@ -1,0 +1,4 @@
+interface:
+  display_name: "md2word"
+  short_description: "在 Windows 上将 Markdown 通过 MHT、DOCX 或模板描述稳定转换为 Word 文档。"
+  default_prompt: "Use $md2word to convert Markdown into Word on Windows with an MHT template, a DOCX template, or a generated template spec, while preserving LaTeX delimiters until Word formula conversion."
