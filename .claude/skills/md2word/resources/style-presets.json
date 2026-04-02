@@ -1,0 +1,72 @@
+{
+  "default": {
+    "template": {
+      "title_font": "SimSun",
+      "title_size_pt": 22.0,
+      "title_margin_top_pt": 48.0,
+      "title_line_height_pt": 30.0,
+      "subtitle_font": "SimSun",
+      "subtitle_size_pt": 12.0,
+      "subtitle_line_height_pt": 22.0,
+      "metadata_heading_font": "SimSun",
+      "metadata_heading_size_pt": 12.0,
+      "metadata_heading_line_height_pt": 22.0,
+      "body_heading_font": "SimSun",
+      "body_heading_size_pt": 14.0,
+      "body_heading_line_height_pt": 22.0,
+      "note_font": "SimSun",
+      "note_size_pt": 11.0,
+      "note_line_height_pt": 22.0
+    },
+    "render": {
+      "body_font": "SimSun",
+      "body_size_pt": 12.0,
+      "body_line_height_pt": 23.0,
+      "heading_font": "SimSun",
+      "heading_sizes": {
+        "h1_h3": 14.0,
+        "h4": 12.0,
+        "h5_plus": 11.0
+      },
+      "heading_line_height_pt": 23.0,
+      "code_font": "Consolas",
+      "code_size_pt": 10.0,
+      "code_line_height_pt": 18.0
+    }
+  },
+  "academic-paper": {
+    "template": {
+      "title_font": "SimHei",
+      "title_size_pt": 18.0,
+      "title_margin_top_pt": 36.0,
+      "title_line_height_pt": 27.0,
+      "subtitle_font": "SimSun",
+      "subtitle_size_pt": 12.0,
+      "subtitle_line_height_pt": 18.0,
+      "metadata_heading_font": "SimHei",
+      "metadata_heading_size_pt": 15.0,
+      "metadata_heading_line_height_pt": 22.5,
+      "body_heading_font": "SimHei",
+      "body_heading_size_pt": 15.0,
+      "body_heading_line_height_pt": 22.5,
+      "note_font": "SimSun",
+      "note_size_pt": 12.0,
+      "note_line_height_pt": 18.0
+    },
+    "render": {
+      "body_font": "SimSun",
+      "body_size_pt": 12.0,
+      "body_line_height_pt": 18.0,
+      "heading_font": "SimHei",
+      "heading_sizes": {
+        "h1_h3": 15.0,
+        "h4": 13.0,
+        "h5_plus": 12.0
+      },
+      "heading_line_height_pt": 22.5,
+      "code_font": "Consolas",
+      "code_size_pt": 10.0,
+      "code_line_height_pt": 18.0
+    }
+  }
+}

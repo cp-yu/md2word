@@ -9,48 +9,9 @@ from email.generator import BytesGenerator
 from io import BytesIO
 from pathlib import Path
 
+from style_presets import DEFAULT_STYLE_PRESET, get_template_style, list_preset_names
 
 SPEC_LINE_RE = re.compile(r"^(?:[-*]\s*)?([A-Za-z0-9_\-\u4e00-\u9fff ]{1,40})[:：]\s*(.+?)\s*$")
-DEFAULT_STYLE_PRESET = "default"
-ACADEMIC_PAPER_STYLE_PRESET = "academic-paper"
-STYLE_PRESETS = {
-    DEFAULT_STYLE_PRESET: {
-        "title_font": "SimSun",
-        "title_size_pt": 22.0,
-        "title_margin_top_pt": 48.0,
-        "title_line_height_pt": 30.0,
-        "subtitle_font": "SimSun",
-        "subtitle_size_pt": 12.0,
-        "subtitle_line_height_pt": 22.0,
-        "metadata_heading_font": "SimSun",
-        "metadata_heading_size_pt": 12.0,
-        "metadata_heading_line_height_pt": 22.0,
-        "body_heading_font": "SimSun",
-        "body_heading_size_pt": 14.0,
-        "body_heading_line_height_pt": 22.0,
-        "note_font": "SimSun",
-        "note_size_pt": 11.0,
-        "note_line_height_pt": 22.0,
-    },
-    ACADEMIC_PAPER_STYLE_PRESET: {
-        "title_font": "SimHei",
-        "title_size_pt": 18.0,
-        "title_margin_top_pt": 36.0,
-        "title_line_height_pt": 27.0,
-        "subtitle_font": "SimSun",
-        "subtitle_size_pt": 12.0,
-        "subtitle_line_height_pt": 18.0,
-        "metadata_heading_font": "SimHei",
-        "metadata_heading_size_pt": 15.0,
-        "metadata_heading_line_height_pt": 22.5,
-        "body_heading_font": "SimHei",
-        "body_heading_size_pt": 15.0,
-        "body_heading_line_height_pt": 22.5,
-        "note_font": "SimSun",
-        "note_size_pt": 12.0,
-        "note_line_height_pt": 18.0,
-    },
-}
 
 
 def ascii_html(text: str) -> str:
@@ -121,10 +82,6 @@ def parse_spec_text(text: str) -> dict[str, str]:
     return config
 
 
-def resolve_style_preset(name: str) -> dict[str, float | str]:
-    return STYLE_PRESETS.get(name, STYLE_PRESETS[DEFAULT_STYLE_PRESET])
-
-
 def render_note_paragraphs(text: str, style: dict[str, float | str]) -> str:
     if not text.strip():
         return ""
@@ -147,7 +104,7 @@ def render_note_paragraphs(text: str, style: dict[str, float | str]) -> str:
 
 
 def build_html(config: dict[str, str]) -> str:
-    style = resolve_style_preset(config.get("style-preset", DEFAULT_STYLE_PRESET))
+    style = get_template_style(config.get("style-preset", DEFAULT_STYLE_PRESET))
     title = config["title"] or "{{TITLE}}"
     subtitle = config["subtitle"].strip()
     metadata_heading = config["metadata-heading"].strip()
@@ -255,13 +212,14 @@ def build_mht(html_text: str) -> bytes:
 
 
 def main() -> int:
+    preset_names = list_preset_names()
     parser = argparse.ArgumentParser(description="Generate a reusable MHT template from a simple spec or plain text description")
     parser.add_argument("--spec", "-s", required=True, help="Template spec or description markdown path")
     parser.add_argument("--output", "-o", required=True, help="Output MHT path")
     parser.add_argument(
         "--style-preset",
         default="",
-        choices=["", *sorted(STYLE_PRESETS)],
+        choices=["", *preset_names],
         help="Optional style preset override for the generated template",
     )
     args = parser.parse_args()

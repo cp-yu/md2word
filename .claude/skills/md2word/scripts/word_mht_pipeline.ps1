@@ -20,39 +20,8 @@ $ErrorActionPreference = "Stop"
 $wdFormatDocumentDefault = 16
 $wdCollapseEnd = 0
 
-function Resolve-WindowsPath {
-    param([string]$PathValue)
-
-    if ($PathValue -match '^[A-Za-z]:\\') {
-        return $PathValue
-    }
-
-    if ($PathValue -match '^\\\\') {
-        return $PathValue
-    }
-
-    $normalized = $PathValue -replace '\\', '/'
-    if ($normalized -match '^/mnt/([a-zA-Z])/(.*)$') {
-        $drive = $matches[1].ToUpper()
-        $rest = $matches[2] -replace '/', '\'
-        return "${drive}:\$rest"
-    }
-
-    throw "Unsupported path for Windows conversion: $PathValue"
-}
-
-function Release-ComObject {
-    param([object]$ComObject)
-
-    if ($null -eq $ComObject) {
-        return
-    }
-
-    try {
-        [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($ComObject)
-    } catch {
-    }
-}
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir "word_common.ps1")
 
 function Normalize-LatexBlockText {
     param([string]$Text)
@@ -319,21 +288,5 @@ try {
     }
     exit 1
 } finally {
-    if ($null -ne $document) {
-        try {
-            $document.Close([ref]$false)
-        } catch {
-        }
-    }
-    if ($null -ne $word) {
-        try {
-            $word.Quit()
-        } catch {
-        }
-    }
-
-    Release-ComObject -ComObject $document
-    Release-ComObject -ComObject $word
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
+    Close-WordSession -Document $document -Word $word -SaveChanges $false
 }

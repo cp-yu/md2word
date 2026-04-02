@@ -16,41 +16,7 @@ from email.parser import BytesParser
 from io import BytesIO
 from pathlib import Path
 
-
-DEFAULT_STYLE_PRESET = "default"
-ACADEMIC_PAPER_STYLE_PRESET = "academic-paper"
-STYLE_PRESETS = {
-    DEFAULT_STYLE_PRESET: {
-        "body_font": "SimSun",
-        "body_size_pt": 12.0,
-        "body_line_height_pt": 23.0,
-        "heading_font": "SimSun",
-        "heading_sizes": {
-            "h1_h3": 14.0,
-            "h4": 12.0,
-            "h5_plus": 11.0,
-        },
-        "heading_line_height_pt": 23.0,
-        "code_font": "Consolas",
-        "code_size_pt": 10.0,
-        "code_line_height_pt": 18.0,
-    },
-    ACADEMIC_PAPER_STYLE_PRESET: {
-        "body_font": "SimSun",
-        "body_size_pt": 12.0,
-        "body_line_height_pt": 18.0,
-        "heading_font": "SimHei",
-        "heading_sizes": {
-            "h1_h3": 15.0,
-            "h4": 13.0,
-            "h5_plus": 12.0,
-        },
-        "heading_line_height_pt": 22.5,
-        "code_font": "Consolas",
-        "code_size_pt": 10.0,
-        "code_line_height_pt": 18.0,
-    },
-}
+from style_presets import DEFAULT_STYLE_PRESET, get_render_style, list_preset_names
 
 
 BOLD_FIELD_LINE_RE = re.compile(r"^\*\*(.+?)：\*\*\s*(.*)$")
@@ -500,10 +466,6 @@ def fill_cover_tables(
 
     report["table_replacements"] = replacements
     return new_html
-
-
-def resolve_style_preset(name: str) -> dict[str, object]:
-    return STYLE_PRESETS.get(name, STYLE_PRESETS[DEFAULT_STYLE_PRESET])
 
 
 def paragraph_style_for(
@@ -1036,6 +998,7 @@ def attach_related_image_part(msg: EmailMessage, asset: dict[str, object]) -> No
 
 
 def main() -> int:
+    preset_names = list_preset_names()
     parser = argparse.ArgumentParser(description="Render markdown into a reusable Word-exported MHT template")
     parser.add_argument("--input", "-i", required=True, help="Input markdown path")
     parser.add_argument("--template", "-t", required=True, help="Template MHT path")
@@ -1044,14 +1007,14 @@ def main() -> int:
     parser.add_argument(
         "--style-preset",
         default=DEFAULT_STYLE_PRESET,
-        choices=sorted(STYLE_PRESETS),
+        choices=preset_names,
         help="Rendering style preset for body content",
     )
     args = parser.parse_args()
 
     md_text = Path(args.input).read_text(encoding="utf-8")
     header_items, blocks = parse_markdown(md_text)
-    style = resolve_style_preset(args.style_preset)
+    style = get_render_style(args.style_preset)
 
     msg = BytesParser(policy=policy.default).parsebytes(Path(args.template).read_bytes())
     html_part = next(
