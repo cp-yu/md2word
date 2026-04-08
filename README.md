@@ -2,6 +2,11 @@
 
 这是一个用于分享 `.claude` 自定义 skill 的仓库。它提供了一个名为 `md2word` 的 skill，用于在 Windows 环境下把 Markdown 稳定转换为 Word 文档，并支持模板复用、Markdown 图片/表格、标题导航与公式后处理。
 
+现在这个仓库同时具备两种分发形态：
+
+- 作为普通 skill 仓库，直接复用 `.claude/skills/md2word`
+- 作为 Claude Code plugin marketplace 仓库，通过 `.claude-plugin/marketplace.json` 和 `.claude-plugin/plugin.json` 安装
+
 核心链路很直接：
 
 `Markdown -> MHT -> DOCX -> WordMath DOCX`
@@ -31,6 +36,9 @@
 实际 skill 内容放在隐藏目录里：
 
 ```text
+.claude-plugin/
+├── marketplace.json
+└── plugin.json
 .claude/
 └── skills/
     └── md2word/
@@ -42,6 +50,8 @@
 
 其中：
 
+- `.claude-plugin/marketplace.json`：Claude Code marketplace 清单，发布本仓库内的 `md2word` plugin
+- `.claude-plugin/plugin.json`：plugin manifest，声明插件元数据并把 skill 路径指向 `./.claude/skills/`
 - `.claude/skills/md2word/SKILL.md`：skill 入口说明
 - `.claude/skills/md2word/scripts/`：PowerShell 与 Python 脚本
 - `.claude/skills/md2word/resources/`：默认模板、样式预设与模板规格参考
@@ -60,13 +70,40 @@
 
 ## 安装方式
 
-把仓库里的 skill 目录复制到你的项目中：
+### 方式一：通过 Claude Code plugin marketplace 安装
+
+这个仓库根目录现在既是 marketplace 仓库，也是 `md2word` plugin 的根目录。发布到 GitHub 后，可以直接添加 marketplace：
+
+```text
+/plugin marketplace add cp-yu/md2word
+/plugin install md2word@cp-yu-md2word
+```
+
+如果你更习惯 CLI，也可以用：
+
+```bash
+claude plugin marketplace add cp-yu/md2word
+claude plugin install md2word@cp-yu-md2word
+```
+
+本地调试时也可以直接把当前仓库作为本地 marketplace：
+
+```text
+/plugin marketplace add .
+/plugin install md2word@cp-yu-md2word
+```
+
+安装后，Claude Code 会从 plugin manifest 暴露出的 `./.claude/skills/` 目录发现 `md2word` skill。
+
+### 方式二：直接复制 skill 目录
+
+如果你不走 plugin marketplace，也可以继续直接复制：
 
 ```text
 <your-project>/.claude/skills/md2word
 ```
 
-最简单的做法就是直接复制本仓库的：
+最简单的做法就是复制本仓库的：
 
 ```text
 .claude/skills/md2word

@@ -1,0 +1,20 @@
+{
+  "name": "md2word",
+  "version": "1.0.0",
+  "description": "在 Windows + Microsoft Word 流水线中把 Markdown 稳定导出为 Word，支持模板复用、图片、表格、Mermaid 和 Office Math 后处理。",
+  "author": {
+    "name": "cp-yu"
+  },
+  "homepage": "https://github.com/cp-yu/md2word",
+  "repository": "https://github.com/cp-yu/md2word",
+  "license": "MIT",
+  "keywords": [
+    "markdown",
+    "word",
+    "docx",
+    "windows",
+    "claude-code",
+    "skill"
+  ],
+  "skills": "./.claude/skills/"
+}
