@@ -1,6 +1,6 @@
 # md2word
 
-这是一个用于分享 `.claude` 自定义 skill 的仓库。它提供了一个名为 `md2word` 的 skill，用于在 Windows 环境下把 Markdown 稳定转换为 Word 文档，并支持模板复用与公式后处理。
+这是一个用于分享 `.claude` 自定义 skill 的仓库。它提供了一个名为 `md2word` 的 skill，用于在 Windows 环境下把 Markdown 稳定转换为 Word 文档，并支持模板复用、Markdown 图片/表格、标题导航与公式后处理。
 
 核心链路很直接：
 
@@ -13,6 +13,7 @@
 - 你已经有 `.mht` 模板，想把 Markdown 内容灌进去
 - 你只有 `.docx` 模板，想复用已有 Word 样式
 - 你没有模板文件，只有一段模板描述，希望先生成模板再导出
+- 你的 Markdown 里有本地图片、标准表格，且希望在 Word 中保留结构
 - 你的 Markdown 里带有 `$...$` 或 `$$...$$` LaTeX 公式，想交给 Word 转成 Office Math
 
 ## 仓库结构
@@ -25,8 +26,7 @@
     └── md2word/
         ├── SKILL.md
         ├── agents/
-        ├── assets/
-        ├── references/
+        ├── resources/
         └── scripts/
 ```
 
@@ -34,8 +34,7 @@
 
 - `.claude/skills/md2word/SKILL.md`：skill 入口说明
 - `.claude/skills/md2word/scripts/`：PowerShell 与 Python 脚本
-- `.claude/skills/md2word/assets/`：默认示例模板
-- `.claude/skills/md2word/references/`：模板规格参考
+- `.claude/skills/md2word/resources/`：默认模板、样式预设与模板规格参考
 
 ## 环境要求
 
@@ -70,34 +69,34 @@
 默认入口是：
 
 ```powershell
-.claude\skills\md2word\scripts\md2word.cmd -Input disclosure.md
+.claude\skills\md2word\scripts\md2word.cmd --input disclosure.md
 ```
 
 使用 `.mht` 模板：
 
 ```powershell
 .claude\skills\md2word\scripts\md2word.cmd `
-  -Input disclosure.md `
-  -TemplateMht custom-template.mht `
-  -TemplateReport template_inference_report.md
+  --input disclosure.md `
+  --template-mht custom-template.mht `
+  --template-report template_inference_report.md
 ```
 
 使用 `.docx` 模板：
 
 ```powershell
 .claude\skills\md2word\scripts\md2word.cmd `
-  -Input disclosure.md `
-  -TemplateDocx contract-template.docx `
-  -TemplateOut contract-template.normalized.mht
+  --input disclosure.md `
+  --template-docx contract-template.docx `
+  --template-out contract-template.normalized.mht
 ```
 
 根据模板描述先生成模板再转换：
 
 ```powershell
 .claude\skills\md2word\scripts\md2word.cmd `
-  -Input disclosure.md `
-  -TemplateSpec template-spec.md `
-  -TemplateOut generated-template.mht
+  --input disclosure.md `
+  --template-spec template-spec.md `
+  --template-out generated-template.mht
 ```
 
 ## 产物说明
@@ -107,21 +106,21 @@
 - `<input>.mht`
 - `<input>.docx`
 - `<input>.wordmath.docx`
-- `-TemplateOut` 指定的归一化模板或生成模板
-- `-TemplateReport` 指定的模板推断报告
+- `--template-out` 指定的归一化模板或生成模板
+- `--template-report` 指定的模板推断报告
 
 ## 这个 skill 做了什么
 
 - 根据模板来源在 `.mht`、`.docx`、模板描述三种输入之间分流
-- 将 Markdown 渲染进模板，支持正文替换、占位符替换和元数据表填充
+- 将 Markdown 渲染进模板，支持正文替换、占位符替换、元数据表填充、Markdown 图片和表格
 - 调用 Windows Word 将 MHT 另存为 DOCX
-- 在 Word 中把 LaTeX 文本进一步转换为 Office Math
+- 在 Word 中把 Markdown 标题映射为 Word 导航层级，并把 LaTeX 文本进一步转换为 Office Math
 
 ## 限制
 
 - 不是跨平台方案，核心链路依赖 Windows Word COM
 - 默认模板只是示例，不代表只能处理专利用文档
-- 如果模板没有显式锚点，正文插入会走推断逻辑，因此复杂模板建议配合 `-TemplateReport` 检查
+- 如果模板没有显式锚点，正文插入会走推断逻辑，因此复杂模板建议配合 `--template-report` 检查
 - Mermaid 渲染依赖额外工具，不会静默降级
 
 ## 适合拿去怎么分享

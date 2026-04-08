@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -36,9 +37,14 @@ CONTENT_MARKERS = ("{{CONTENT}}", "<!--MD_CONTENT-->")
 METADATA_TABLE_MARKER = "{{METADATA_TABLE}}"
 TITLE_MARKERS = ("{{TITLE}}", "{{DOCUMENT_TITLE}}")
 BODY_HINTS = ("正文", "main content", "document body", "report body", "content section")
-SECTION_HEADING_RE = re.compile(r"^\d+[、,.，．]?\s*(.+)$")
-SUBSECTION_HEADING_RE = re.compile(r"^\d+(?:\.\d+)+[、,.，．]?\s*(.+)$")
-STEP_HEADING_RE = re.compile(r"^[Ss]\d+[、,.，．]?\s*(.+)$")
+IMAGE_LINE_RE = re.compile(r'^!\[(?P<alt>[^\]]*)\]\((?P<src>[^)]+)\)\s*$')
+TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+EXPLICIT_HEADING_PREFIX_RE = re.compile(
+    r"^(?:\d+(?:\.\d+)*|[一二三四五六七八九十百千零〇两]+|[Ss]\d+)[、,.，．]?\s*.+$"
+)
+HEADING_MARKER_PREFIX = "[[MD2WORD_HEADING:"
+HEADING_MARKER_SUFFIX = "]]"
+MAX_WORD_HEADING_LEVEL = 6
 
 
 def normalize_label(label: str) -> str:
@@ -57,6 +63,84 @@ def strip_inline_markdown(text: str) -> str:
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_image_line(text: str) -> tuple[str, str] | None:
+    match = IMAGE_LINE_RE.match(text.strip())
+    if not match:
+        return None
+    alt = strip_inline_markdown(match.group("alt")) or "插图"
+    src = match.group("src").strip()
+    if not src:
+        return None
+    if src.startswith("<") and src.endswith(">"):
+        src = src[1:-1].strip()
+    return alt, src
+
+
+def split_table_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if "|" not in stripped:
+        return None
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells = [strip_inline_markdown(cell.strip()) for cell in stripped.split("|")]
+    if len(cells) < 2:
+        return None
+    return cells
+
+
+def parse_table_alignment(line: str) -> list[str] | None:
+    cells = split_table_row(line)
+    if cells is None:
+        return None
+
+    alignments: list[str] = []
+    for cell in cells:
+        compact = cell.replace(" ", "")
+        if not TABLE_SEPARATOR_CELL_RE.fullmatch(compact):
+            return None
+        if compact.startswith(":") and compact.endswith(":"):
+            alignments.append("center")
+        elif compact.endswith(":"):
+            alignments.append("right")
+        else:
+            alignments.append("left")
+    return alignments
+
+
+def parse_table_block(lines: list[str], start_index: int) -> tuple[dict[str, object], int] | None:
+    if start_index + 1 >= len(lines):
+        return None
+
+    header = split_table_row(lines[start_index])
+    alignments = parse_table_alignment(lines[start_index + 1])
+    if header is None or alignments is None or len(header) != len(alignments):
+        return None
+
+    rows: list[list[str]] = []
+    i = start_index + 2
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if not stripped:
+            break
+        row = split_table_row(lines[i])
+        if row is None or len(row) != len(header):
+            break
+        rows.append(row)
+        i += 1
+
+    return (
+        {
+            "type": "table",
+            "headers": header,
+            "alignments": alignments,
+            "rows": rows,
+        },
+        i,
+    )
 
 
 def ascii_html(text: str, *, quote: bool = False) -> str:
@@ -175,6 +259,17 @@ def parse_header_field_line(line: str) -> tuple[str, str] | None:
     return None
 
 
+def has_header_fields_ahead(lines: list[str], start_index: int) -> bool:
+    i = start_index
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if not stripped:
+            i += 1
+            continue
+        return parse_header_field_line(stripped) is not None
+    return False
+
+
 def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, object]]]:
     lines = md_text.splitlines()
     header_items: list[tuple[str, str]] = []
@@ -204,17 +299,21 @@ def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, 
                 saw_header_items = True
                 i += 1
                 continue
+            if stripped == "" and not saw_header_items and has_header_fields_ahead(lines, i + 1):
+                i += 1
+                continue
+            if stripped.startswith("# ") and (saw_header_items or has_header_fields_ahead(lines, i + 1)):
+                # Metadata may be preceded or followed by a duplicated H1 title.
+                # Keep it as document title instead of repeating it in body.
+                if saw_header_items:
+                    in_header = False
+                i += 1
+                continue
             if saw_header_items and stripped == "---":
                 in_header = False
                 i += 1
                 continue
             if saw_header_items and stripped == "":
-                i += 1
-                continue
-            if saw_header_items and stripped.startswith("# "):
-                # Metadata is often followed by a duplicated H1 title.
-                # Keep it as document title instead of repeating it in body.
-                in_header = False
                 i += 1
                 continue
             if saw_header_items:
@@ -260,6 +359,21 @@ def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, 
                 i += 1
             continue
 
+        image_line = parse_image_line(stripped)
+        if image_line is not None:
+            flush_paragraph()
+            alt, src = image_line
+            blocks.append({"type": "image", "src": src, "alt": alt})
+            i += 1
+            continue
+
+        table_block = parse_table_block(lines, i)
+        if table_block is not None:
+            flush_paragraph()
+            block, i = table_block
+            blocks.append(block)
+            continue
+
         if stripped.startswith("#"):
             flush_paragraph()
             level = len(stripped) - len(stripped.lstrip("#"))
@@ -285,35 +399,32 @@ def parse_markdown(md_text: str) -> tuple[list[tuple[str, str]], list[dict[str, 
 
 
 def renumber_heading_blocks(blocks: list[dict[str, object]]) -> None:
-    section_no = 0
-    subsection_no = 0
-    step_no = 0
+    heading_blocks = [block for block in blocks if block.get("type") == "heading"]
+    if not heading_blocks:
+        return
 
-    for block in blocks:
-        if block.get("type") != "heading":
-            continue
+    base_level = min(max(int(block.get("level", 1)), 1) for block in heading_blocks)
+    counters = [0] * MAX_WORD_HEADING_LEVEL
 
+    for block in heading_blocks:
         text = str(block.get("text", "")).strip()
         if not text:
             continue
 
-        subsection_match = SUBSECTION_HEADING_RE.match(text)
-        if subsection_match:
-            subsection_no += 1
-            block["text"] = f"{section_no}.{subsection_no} {subsection_match.group(1).strip()}"
+        normalized_level = min(max(int(block.get("level", 1)) - base_level + 1, 1), MAX_WORD_HEADING_LEVEL)
+        for index in range(normalized_level, MAX_WORD_HEADING_LEVEL):
+            counters[index] = 0
+
+        if EXPLICIT_HEADING_PREFIX_RE.match(text):
             continue
 
-        section_match = SECTION_HEADING_RE.match(text)
-        if section_match:
-            section_no += 1
-            subsection_no = 0
-            block["text"] = f"{section_no}、{section_match.group(1).strip()}"
+        counters[normalized_level - 1] += 1
+        if normalized_level == 1:
+            block["text"] = f"{counters[0]}、{text}"
             continue
 
-        step_match = STEP_HEADING_RE.match(text)
-        if step_match:
-            step_no += 1
-            block["text"] = f"S{step_no}、{step_match.group(1).strip()}"
+        prefix = ".".join(str(counters[index]) for index in range(normalized_level))
+        block["text"] = f"{prefix} {text}"
 
 
 def collect_values_by_label(header_items: list[tuple[str, str]]) -> dict[str, list[str]]:
@@ -365,6 +476,76 @@ def render_metadata_table(header_items: list[tuple[str, str]]) -> str:
         "<table class=MsoTableGrid border=1 cellspacing=0 cellpadding=0 "
         "style='border-collapse:collapse;border:none;mso-border-alt:solid windowtext .5pt'>"
         + "".join(rows)
+        + "</table>"
+    )
+
+
+def render_body_table_cell(
+    text: str,
+    *,
+    style: dict[str, object],
+    header: bool = False,
+    alignment: str = "left",
+) -> str:
+    weight_prefix = "<b>" if header else ""
+    weight_suffix = "</b>" if header else ""
+    text_align = alignment if alignment in {"left", "center", "right"} else "left"
+    return (
+        "<p class=MsoNormal style='margin:0;"
+        f"text-align:{text_align};line-height:{float(style['body_line_height_pt']):.1f}pt;"
+        "mso-line-height-rule:exactly'>"
+        f"{weight_prefix}<span style='font-size:{float(style['body_size_pt']):.1f}pt;"
+        f"font-family:{style['body_font']}'>{ascii_html(text) if text else '&nbsp;'}</span>{weight_suffix}"
+        "</p>"
+    )
+
+
+def render_body_table(block: dict[str, object], style: dict[str, object]) -> str:
+    headers = [str(x) for x in block.get("headers", [])]
+    rows = [[str(cell) for cell in row] for row in block.get("rows", [])]
+    alignments = [str(x) for x in block.get("alignments", [])]
+    if not headers:
+        return ""
+
+    column_count = len(headers)
+    width_pct = 100.0 / column_count
+
+    rendered_rows: list[str] = []
+    header_cells = "".join(
+        "<td valign=top width={width}% style='width:{width}%;border:solid windowtext 1.0pt;"
+        "padding:4.0pt 6.0pt;background:#F2F2F2'>{content}</td>".format(
+            width=int(round(width_pct)),
+            content=render_body_table_cell(
+                headers[index],
+                style=style,
+                header=True,
+                alignment=alignments[index] if index < len(alignments) else "left",
+            ),
+        )
+        for index in range(column_count)
+    )
+    rendered_rows.append(f"<tr>{header_cells}</tr>")
+
+    for row in rows:
+        body_cells = "".join(
+            "<td valign=top width={width}% style='width:{width}%;border:solid windowtext 1.0pt;"
+            "border-top:none;padding:4.0pt 6.0pt'>{content}</td>".format(
+                width=int(round(width_pct)),
+                content=render_body_table_cell(
+                    row[index] if index < len(row) else "",
+                    style=style,
+                    alignment=alignments[index] if index < len(alignments) else "left",
+                ),
+            )
+            for index in range(column_count)
+        )
+        rendered_rows.append(f"<tr>{body_cells}</tr>")
+
+    return (
+        "<table class=MsoTableGrid border=1 cellspacing=0 cellpadding=0 "
+        "style='margin-top:6.0pt;margin-bottom:12.0pt;border-collapse:collapse;"
+        "border:none;mso-border-alt:solid windowtext .5pt;width:100%'>"
+        + "".join(rendered_rows)
         + "</table>"
     )
 
@@ -495,11 +676,22 @@ def heading_size_for(level: int, style: dict[str, object]) -> float:
     return float(heading_sizes["h5_plus"])
 
 
-def body_heading(text: str, size_pt: float, style: dict[str, object]) -> str:
+def heading_marker(level: int) -> str:
+    normalized_level = max(1, min(level, MAX_WORD_HEADING_LEVEL))
+    return f"{HEADING_MARKER_PREFIX}{normalized_level}{HEADING_MARKER_SUFFIX}"
+
+
+def body_heading(text: str, level: int, size_pt: float, style: dict[str, object]) -> str:
+    marker_html = (
+        "<span style='font-size:1.0pt;color:white'>"
+        f"{ascii_html(heading_marker(level))}"
+        "</span>"
+    )
     return (
         "<p class=MsoNormal style='"
         f"line-height:{float(style['heading_line_height_pt']):.1f}pt;"
         "mso-line-height-rule:exactly'>"
+        f"{marker_html}"
         "<b><span style='font-size:"
         f"{size_pt:.1f}pt;mso-bidi-font-size:10.0pt;font-family:{style['heading_font']}'>"
         f"{ascii_html(text)}"
@@ -618,11 +810,17 @@ def render_body_inner(blocks: list[dict[str, object]], style: dict[str, object])
         if kind == "heading":
             level = int(block["level"])
             text = str(block["text"])
-            parts.append(body_heading(text, heading_size_for(level, style), style))
+            parts.append(body_heading(text, level, heading_size_for(level, style), style))
             continue
 
         if kind == "paragraph":
             parts.append(body_paragraph(str(block["text"]), style=style))
+            continue
+
+        if kind == "table":
+            rendered = render_body_table(block, style)
+            if rendered:
+                parts.append(rendered)
             continue
 
         if kind == "list":
@@ -646,6 +844,13 @@ def render_body_inner(blocks: list[dict[str, object]], style: dict[str, object])
         if kind == "mermaid":
             src = str(block.get("content_location", "")).strip()
             alt = str(block.get("alt", "Mermaid 图")).strip() or "Mermaid 图"
+            if src:
+                parts.append(body_image_paragraph(src, alt))
+            continue
+
+        if kind == "image":
+            src = str(block.get("content_location", "")).strip()
+            alt = str(block.get("alt", "插图")).strip() or "插图"
             if src:
                 parts.append(body_image_paragraph(src, alt))
             continue
@@ -792,6 +997,7 @@ def build_report(
         f"- html_part_location: {report.get('html_part_location', '')}",
         f"- body_strategy: {report.get('body_strategy', 'unknown')}",
         f"- metadata_fields: {len(header_items)}",
+        f"- image_count: {report.get('image_count', 0)}",
         f"- mermaid_count: {report.get('mermaid_count', 0)}",
         f"- mermaid_renderer: {report.get('mermaid_renderer', 'none')}",
         "",
@@ -881,6 +1087,66 @@ def mermaid_asset_base(html_part_location: str) -> str:
     if head:
         return head + "/"
     return location + "/"
+
+
+def image_asset_type(image_path: Path) -> tuple[str, str]:
+    mime_type, _encoding = mimetypes.guess_type(image_path.name)
+    if mime_type and "/" in mime_type:
+        maintype, subtype = mime_type.split("/", 1)
+        if maintype == "image":
+            return maintype, subtype
+    suffix = image_path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image", "jpeg"
+    if suffix == ".gif":
+        return "image", "gif"
+    if suffix == ".bmp":
+        return "image", "bmp"
+    if suffix == ".webp":
+        return "image", "webp"
+    return "image", "png"
+
+
+def prepare_local_image_assets(
+    blocks: list[dict[str, object]],
+    input_path: Path,
+    html_part_location: str,
+    report: dict[str, object],
+) -> list[dict[str, object]]:
+    image_blocks = [block for block in blocks if block.get("type") == "image"]
+    report["image_count"] = len(image_blocks)
+    if not image_blocks:
+        return []
+
+    assets: list[dict[str, object]] = []
+    base_location = mermaid_asset_base(html_part_location)
+    input_dir = input_path.resolve().parent
+
+    for index, block in enumerate(image_blocks, start=1):
+        src = str(block.get("src", "")).strip()
+        if not src:
+            raise RuntimeError(f"第 {index} 个图片块缺少图片路径")
+        image_path = (input_dir / src).resolve()
+        if not image_path.is_file():
+            raise RuntimeError(f"图片文件不存在: {image_path}")
+        suffix = image_path.suffix.lower() or ".png"
+        file_name = f"image-{index:03d}{suffix}"
+        content_location = base_location + file_name
+        maintype, subtype = image_asset_type(image_path)
+        block["content_location"] = content_location
+        if not str(block.get("alt", "")).strip():
+            block["alt"] = image_path.stem
+        assets.append(
+            {
+                "content_location": content_location,
+                "filename": file_name,
+                "data": image_path.read_bytes(),
+                "maintype": maintype,
+                "subtype": subtype,
+            }
+        )
+
+    return assets
 
 
 def render_mermaid_png(command_prefix: list[str], mermaid_code: str, output_path: Path) -> None:
@@ -987,8 +1253,8 @@ def attach_related_image_part(msg: EmailMessage, asset: dict[str, object]) -> No
     part = EmailMessage()
     part.set_content(
         asset["data"],
-        maintype="image",
-        subtype="png",
+        maintype=str(asset.get("maintype", "image")),
+        subtype=str(asset.get("subtype", "png")),
         cte="base64",
     )
     part["Content-Location"] = asset["content_location"]
@@ -1029,6 +1295,12 @@ def main() -> int:
         "html_part_location": str(html_part.get("Content-Location", "")),
     }
 
+    local_image_assets = prepare_local_image_assets(
+        blocks,
+        Path(args.input),
+        report["html_part_location"],
+        report,
+    )
     mermaid_assets = prepare_mermaid_assets(blocks, report["html_part_location"], report)
     html_source = html_part.get_content()
     html_source = update_title(html_source, header_items)
@@ -1049,7 +1321,7 @@ def main() -> int:
         else:
             html_part.add_header("Content-Location", content_location)
 
-    for asset in mermaid_assets:
+    for asset in [*local_image_assets, *mermaid_assets]:
         attach_related_image_part(msg, asset)
 
     output_path = Path(args.output)
